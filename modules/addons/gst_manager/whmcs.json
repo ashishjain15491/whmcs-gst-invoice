@@ -1,0 +1,22 @@
+{
+    "schema": "1.0",
+    "type": "whmcs-addons",
+    "name": "GST Manager",
+    "license": "proprietary",
+    "category": "utilities",
+    "description": {
+        "name": "GST Manager",
+        "tagline": "Manage GST invoicing and compliance for your WHMCS business with automated tax calculations.",
+        "long": "GST Manager for WHMCS is a module that allows your business to automatically handle GST (Goods and Services Tax) invoicing and compliance. The module streamlines tax calculations, generates GST-compliant invoices, and maintains detailed records for audit purposes.\n\nKey features include automatic GST rate application based on customer location, GST-compliant invoice formatting, tax report generation, and comprehensive audit trails. The module supports multiple tax rates and can be customized for different jurisdictions.",
+        "features": []
+    },
+    "logo": {
+        "filename": "logo.png"
+    },
+    "authors": [
+        {
+            "name": "Relyweb",
+            "url": "https://www.relyweb.co/"
+        }
+    ]
+}
