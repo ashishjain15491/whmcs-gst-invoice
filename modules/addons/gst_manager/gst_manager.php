@@ -10,10 +10,10 @@ function gst_manager_config()
 {
     return [
         'name' => 'GST Manager',
-        'description' => 'Complete GST Solution. Features: One-Click System Setup, Custom Rules, SAC Management, and CSV Reports.',
+        'description' => 'Complete GST Solution. Features: One-Click System Setup, Custom Rules, SAC Management, Export Compliance, and CSV Reports.',
         'author' => 'Relyweb',
         'language' => 'english',
-        'version' => '2.6',
+        'version' => '2.7',
     ];
 }
 
@@ -26,17 +26,25 @@ function gst_manager_activate()
                 $table->string('setting', 64)->primary();
                 $table->text('value')->nullable();
             });
-            
-            // Seed Defaults
-            $defaults = [
-                'sac_hosting' => '998315', 'sac_domain' => '998319', 'sac_addon' => '998313', 'sac_setup' => '998313',
-                'sac_upgrade' => '998315', 'sac_latefee' => '998313', 'sac_default' => '998313', 
-                'footer_tel' => '+91-1234567890', 'footer_email' => 'billing@example.com',
-                'footer_cin_type' => 'CIN', 'footer_cin_val' => 'U12345MH2024PTC123456', 'footer_pan' => 'ABCDE1234F',
-                'label_tel' => 'Tel', 'label_email' => 'E-Mail', 'label_pan' => 'PAN', 'label_cin' => 'CIN',
-                'home_state' => 'Maharashtra',
-            ];
-            foreach ($defaults as $key => $val) {
+        }
+        
+        // Seed Defaults (Only if they don't already exist)
+        $defaults = [
+            'sac_hosting' => '998315', 'sac_domain' => '998319', 'sac_addon' => '998313', 'sac_setup' => '998313',
+            'sac_upgrade' => '998315', 'sac_latefee' => '998313', 'sac_default' => '998313', 
+            'purp_hosting' => 'P0807', 'purp_domain' => 'P0807', 'purp_addon' => 'P0807', 'purp_setup' => 'P0807',
+            'purp_upgrade' => 'P0807', 'purp_latefee' => 'P0807', 'purp_default' => 'P0807', 
+            'footer_tel' => '+91-1234567890', 'footer_email' => 'billing@example.com',
+            'footer_cin_type' => 'CIN', 'footer_cin_val' => 'U12345MH2024PTC123456', 'footer_pan' => 'ABCDE1234F',
+            'label_tel' => 'Tel', 'label_email' => 'E-Mail', 'label_pan' => 'PAN', 'label_cin' => 'CIN',
+            'home_state' => 'Maharashtra',
+            'export_decl' => 'Supply meant for export under Letter of Undertaking without payment of Integrated GST.',
+            'fema_decl' => 'We hereby declare that this invoice represents export of software and IT services from India, and the payment will be received in convertible foreign exchange.'
+        ];
+        
+        foreach ($defaults as $key => $val) {
+            // Check if the setting already exists before inserting
+            if (!Capsule::table('mod_gst_config')->where('setting', $key)->first()) {
                 Capsule::table('mod_gst_config')->insert(['setting' => $key, 'value' => $val]);
             }
         }
@@ -48,7 +56,15 @@ function gst_manager_activate()
                 $table->string('keyword', 100);
                 $table->string('display_name', 100);
                 $table->string('sac_code', 20);
+                $table->string('purpose_code', 20)->nullable();
             });
+        } else {
+            // Upgrade path: Add purpose_code if it doesn't exist
+            if (!Capsule::schema()->hasColumn('mod_gst_rules', 'purpose_code')) {
+                Capsule::schema()->table('mod_gst_rules', function($table) {
+                    $table->string('purpose_code', 20)->nullable()->after('sac_code');
+                });
+            }
         }
 
         return gst_manager_sync_templates();
@@ -68,15 +84,25 @@ function gst_manager_output($vars)
     $modulelink = $vars['modulelink'];
     $action = isset($_REQUEST['action']) ? $_REQUEST['action'] : 'dashboard';
 
+    // Fetch active currencies for Bank Details
+    $currencies = Capsule::table('tblcurrencies')->get();
+
     // --- ACTIONS ---
 
     // 1. Save Settings
     if ($action == 'save_settings') {
         $settings = [
             'sac_hosting', 'sac_domain', 'sac_addon', 'sac_setup', 'sac_upgrade', 'sac_latefee', 'sac_default',
+            'purp_hosting', 'purp_domain', 'purp_addon', 'purp_setup', 'purp_upgrade', 'purp_latefee', 'purp_default',
             'footer_tel', 'footer_email', 'footer_cin_type', 'footer_cin_val', 'footer_pan',
-            'label_tel', 'label_email', 'label_pan', 'label_cin'
+            'label_tel', 'label_email', 'label_pan', 'label_cin', 'export_decl', 'fema_decl'
         ];
+        
+        // Add dynamic currency bank details to savable settings
+        foreach ($currencies as $curr) {
+            $settings[] = 'bank_details_' . $curr->code;
+        }
+
         foreach ($settings as $setting) {
             Capsule::table('mod_gst_config')->updateOrInsert(['setting' => $setting], ['value' => trim($_POST[$setting] ?? '')]);
         }
@@ -90,7 +116,8 @@ function gst_manager_output($vars)
             Capsule::table('mod_gst_rules')->insert([
                 'keyword' => strtolower(trim($_POST['keyword'])),
                 'display_name' => trim($_POST['display_name']),
-                'sac_code' => trim($_POST['sac_code'])
+                'sac_code' => trim($_POST['sac_code']),
+                'purpose_code' => trim($_POST['purpose_code'])
             ]);
         }
         header("Location: " . $modulelink . "&action=rules&success=added");
@@ -144,7 +171,6 @@ function gst_manager_output($vars)
         Capsule::table('tblconfiguration')->updateOrInsert(['setting' => 'TaxIDDisabled'], ['value' => '']); // Client Tax IDs (Enable VAT Number)
 
         // C. Taxed Items (Advanced Settings)
-        // Note: Hosting products are usually taxed per product, but we enable global flags where available
         Capsule::table('tblconfiguration')->updateOrInsert(['setting' => 'TaxDomains'], ['value' => 'on']);
         Capsule::table('tblconfiguration')->updateOrInsert(['setting' => 'TaxBillableItems'], ['value' => 'on']);
         Capsule::table('tblconfiguration')->updateOrInsert(['setting' => 'TaxLateFee'], ['value' => 'on']);
@@ -259,17 +285,24 @@ function gst_manager_output($vars)
         echo '<div class="gst-card">
             <h3><i class="fas fa-list-ul"></i> Custom Item Type Rules</h3>
             <table class="table table-bordered table-striped table-rules">
-                <thead><tr><th width="30%">Keyword</th><th width="30%">Display Name</th><th width="20%">SAC Code</th><th width="10%"></th></tr></thead>
+                <thead><tr><th width="25%">Keyword</th><th width="25%">Display Name</th><th width="20%">SAC Code</th><th width="20%">Purpose Code</th><th width="10%"></th></tr></thead>
                 <tbody>';
         foreach ($rules as $rule) {
             echo '<tr>
                 <td>Contains: <code>'.htmlspecialchars($rule->keyword).'</code></td>
                 <td>'.htmlspecialchars($rule->display_name).'</td>
                 <td>'.htmlspecialchars($rule->sac_code).'</td>
+                <td>'.htmlspecialchars($rule->purpose_code ?? '').'</td>
                 <td><a href="'.$modulelink.'&action=delete_rule&id='.$rule->id.'" class="btn btn-xs btn-danger" onclick="return confirm(\'Delete?\')"><i class="fas fa-trash"></i></a></td>
             </tr>';
         }
-        echo '</tbody><tfoot><form method="post" action="'.$modulelink.'&action=add_rule"><tr class="info"><td><input type="text" name="keyword" class="form-control input-sm" placeholder="e.g. workplace" required></td><td><input type="text" name="display_name" class="form-control input-sm" placeholder="e.g. Zoho" required></td><td><input type="text" name="sac_code" class="form-control input-sm" placeholder="SAC" required></td><td><button type="submit" class="btn btn-success btn-sm btn-block"><i class="fas fa-plus"></i></button></td></tr></form></tfoot></table></div>';
+        echo '</tbody><tfoot><form method="post" action="'.$modulelink.'&action=add_rule"><tr class="info">
+            <td><input type="text" name="keyword" class="form-control input-sm" placeholder="e.g. workplace" required></td>
+            <td><input type="text" name="display_name" class="form-control input-sm" placeholder="e.g. Zoho" required></td>
+            <td><input type="text" name="sac_code" class="form-control input-sm" placeholder="SAC" required></td>
+            <td><input type="text" name="purpose_code" class="form-control input-sm" placeholder="Purpose Code"></td>
+            <td><button type="submit" class="btn btn-success btn-sm btn-block"><i class="fas fa-plus"></i></button></td>
+            </tr></form></tfoot></table></div>';
 
     } elseif ($tab == 'settings') {
         // --- SETTINGS TAB ---
@@ -277,23 +310,34 @@ function gst_manager_output($vars)
         <div class="row">
             <div class="col-md-6">
                 <div class="gst-card">
-                    <h3>Default SAC Codes</h3>
-                    <div class="form-group"><label>Hosting (Shared/VPS)</label><input type="text" name="sac_hosting" class="form-control" value="'.($config['sac_hosting']??'').'"></div>
-                    <div class="form-group"><label>Product Upgrades</label><input type="text" name="sac_upgrade" class="form-control" value="'.($config['sac_upgrade']??'').'"></div>
-                    <div class="form-group"><label>Domains</label><input type="text" name="sac_domain" class="form-control" value="'.($config['sac_domain']??'').'"></div>
-                    <div class="form-group"><label>Addons</label><input type="text" name="sac_addon" class="form-control" value="'.($config['sac_addon']??'').'"></div>
-                    <div class="form-group"><label>Setup Fees</label><input type="text" name="sac_setup" class="form-control" value="'.($config['sac_setup']??'').'"></div>
+                    <h3>Default SAC & Purpose Codes</h3>
+                    <div class="row">
+                        <div class="col-xs-6"><label>Service Type</label></div>
+                        <div class="col-xs-3"><label>SAC Code</label></div>
+                        <div class="col-xs-3"><label>Purpose</label></div>
+                    </div>
+                    <div class="form-group row"><div class="col-xs-6">Hosting (Shared/VPS)</div><div class="col-xs-3"><input type="text" name="sac_hosting" class="form-control input-sm" value="'.($config['sac_hosting']??'').'"></div><div class="col-xs-3"><input type="text" name="purp_hosting" class="form-control input-sm" value="'.($config['purp_hosting']??'').'"></div></div>
+                    <div class="form-group row"><div class="col-xs-6">Product Upgrades</div><div class="col-xs-3"><input type="text" name="sac_upgrade" class="form-control input-sm" value="'.($config['sac_upgrade']??'').'"></div><div class="col-xs-3"><input type="text" name="purp_upgrade" class="form-control input-sm" value="'.($config['purp_upgrade']??'').'"></div></div>
+                    <div class="form-group row"><div class="col-xs-6">Domains</div><div class="col-xs-3"><input type="text" name="sac_domain" class="form-control input-sm" value="'.($config['sac_domain']??'').'"></div><div class="col-xs-3"><input type="text" name="purp_domain" class="form-control input-sm" value="'.($config['purp_domain']??'').'"></div></div>
+                    <div class="form-group row"><div class="col-xs-6">Addons</div><div class="col-xs-3"><input type="text" name="sac_addon" class="form-control input-sm" value="'.($config['sac_addon']??'').'"></div><div class="col-xs-3"><input type="text" name="purp_addon" class="form-control input-sm" value="'.($config['purp_addon']??'').'"></div></div>
+                    <div class="form-group row"><div class="col-xs-6">Setup Fees</div><div class="col-xs-3"><input type="text" name="sac_setup" class="form-control input-sm" value="'.($config['sac_setup']??'').'"></div><div class="col-xs-3"><input type="text" name="purp_setup" class="form-control input-sm" value="'.($config['purp_setup']??'').'"></div></div>
+                    <div class="form-group row"><div class="col-xs-6">Late Fees Only</div><div class="col-xs-3"><input type="text" name="sac_latefee" class="form-control input-sm" value="'.($config['sac_latefee']??'').'"></div><div class="col-xs-3"><input type="text" name="purp_latefee" class="form-control input-sm" value="'.($config['purp_latefee']??'').'"></div></div>
+                    <div class="form-group row"><div class="col-xs-6">Fallback (Default)</div><div class="col-xs-3"><input type="text" name="sac_default" class="form-control input-sm" value="'.($config['sac_default']??'').'"></div><div class="col-xs-3"><input type="text" name="purp_default" class="form-control input-sm" value="'.($config['purp_default']??'').'"></div></div>
+                </div>
+                
+                <div class="gst-card">
+                    <h3>Export Settings & Declarations</h3>
                     <div class="form-group">
-                        <label>Late Fees Only</label>
-                        <input type="text" name="sac_latefee" class="form-control" value="'.($config['sac_latefee']??'').'">
-                        <p class="help-block">Specifically for "Late Fee" line items.</p>
+                        <label>Export Declaration</label>
+                        <textarea name="export_decl" class="form-control" rows="2">'.htmlspecialchars($config['export_decl'] ?? '').'</textarea>
                     </div>
                     <div class="form-group">
-                        <label>Fallback (Default)</label>
-                        <input type="text" name="sac_default" class="form-control" value="'.($config['sac_default']??'').'">
+                        <label>FEMA Declaration</label>
+                        <textarea name="fema_decl" class="form-control" rows="2">'.htmlspecialchars($config['fema_decl'] ?? '').'</textarea>
                     </div>
                 </div>
             </div>
+            
             <div class="col-md-6">
                 <div class="gst-card">
                     <h3>Footer Configuration</h3>
@@ -302,6 +346,18 @@ function gst_manager_output($vars)
                     <div class="form-group"><label>PAN</label><div class="row"><div class="col-xs-4"><input type="text" name="label_pan" class="form-control" value="'.($config['label_pan']??'PAN').'"></div><div class="col-xs-8"><input type="text" name="footer_pan" class="form-control" value="'.($config['footer_pan']??'').'"></div></div></div>
                     <div class="form-group"><label>CIN / LLPIN</label><div class="row"><div class="col-xs-4"><select name="footer_cin_type" class="form-control"><option value="CIN" '.($config['footer_cin_type']=='CIN'?'selected':'').'>CIN</option><option value="LLPIN" '.($config['footer_cin_type']=='LLPIN'?'selected':'').'>LLPIN</option><option value="Disable" '.($config['footer_cin_type']=='Disable'?'selected':'').'>Disable</option></select></div><div class="col-xs-8"><input type="text" name="footer_cin_val" class="form-control" value="'.($config['footer_cin_val']??'').'"></div></div></div>
                 </div>
+
+                <div class="gst-card">
+                    <h3>Bank Details (Per Currency)</h3>
+                    <p class="help-block">Rendered at the bottom of the invoice based on the active currency.</p>';
+                    foreach ($currencies as $curr) {
+                        $key = 'bank_details_' . $curr->code;
+                        echo '<div class="form-group">
+                            <label>Bank Details for '.$curr->code.'</label>
+                            <textarea name="'.$key.'" class="form-control" rows="3" placeholder="Bank Name: XYZ Bank&#10;Account No: 123456789&#10;SWIFT: XYZB123">'.htmlspecialchars($config[$key] ?? '').'</textarea>
+                        </div>';
+                    }
+                echo '</div>
             </div>
         </div>
         <button type="submit" class="btn btn-success btn-lg"><i class="fas fa-save"></i> Save Configuration</button>
@@ -357,7 +413,6 @@ function gst_manager_generate_tax_rules($homeState) {
     Capsule::table('tbltax')->insert(['level' => 2, 'name' => 'SGST', 'country' => 'India', 'state' => $homeState, 'taxrate' => 9.00]);
 }
 
-// ... (Other functions: check_health, sync_templates, get_root_dir, export_csv are identical to previous version) ...
 function gst_manager_check_health() {
     $activeTemplate = Capsule::table('tblconfiguration')->where('setting', 'Template')->value('value');
     $rootDir = gst_manager_get_root_dir();
@@ -371,6 +426,7 @@ function gst_manager_check_health() {
     }
     return ['status' => 'ok', 'theme' => $activeTemplate];
 }
+
 function gst_manager_sync_templates() {
     try {
         $activeTemplate = Capsule::table('tblconfiguration')->where('setting', 'Template')->value('value');
@@ -385,19 +441,24 @@ function gst_manager_sync_templates() {
         return ['status' => 'success', 'description' => "Synced templates to '$activeTemplate'."];
     } catch (Exception $e) { return ['status' => 'error', 'description' => $e->getMessage()]; }
 }
+
 function gst_manager_get_root_dir() {
     $dir = dirname(dirname(dirname(__DIR__)));
     return (file_exists($dir . '/configuration.php')) ? $dir : $_SERVER['DOCUMENT_ROOT'];
 }
+
 function gst_manager_export_csv() {
     $startdate = $_REQUEST['startdate'];
     $enddate = $_REQUEST['enddate'];
     if (ob_get_level()) ob_end_clean();
     header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename=GST_Report_' . $startdate . '_to_' . $enddate . '.csv');
+    header('Content-Disposition: attachment; filename=GST_Report_' . str_replace('/', '-', $startdate) . '_to_' . str_replace('/', '-', $enddate) . '.csv');
     $output = fopen('php://output', 'w');
     fputcsv($output, ['Invoice Number', 'Date', 'Client Name', 'Client Company', 'Client GSTIN', 'State', 'Taxable Amount', 'CGST Amount', 'SGST Amount', 'IGST Amount', 'Total', 'Status']);
+    
+    // Format dates for DB query if necessary depending on your environment. Assuming standard WHMCS standard date strings here.
     $invoices = Capsule::table('tblinvoices')->join('tblclients', 'tblinvoices.userid', '=', 'tblclients.id')->select('tblinvoices.id', 'tblinvoices.invoicenum', 'tblinvoices.date', 'tblinvoices.subtotal', 'tblinvoices.tax', 'tblinvoices.tax2', 'tblinvoices.total', 'tblinvoices.status', 'tblclients.firstname', 'tblclients.lastname', 'tblclients.companyname', 'tblclients.state', 'tblclients.tax_id', 'tblclients.country')->whereBetween('tblinvoices.date', [$startdate, $enddate])->where('tblinvoices.status', 'Paid')->orderBy('tblinvoices.date', 'asc')->get();
+    
     foreach ($invoices as $inv) {
         $cgst = 0; $sgst = 0; $igst = 0;
         if ($inv->tax2 > 0) { $cgst = $inv->tax; $sgst = $inv->tax2; } elseif ($inv->tax > 0) { $igst = $inv->tax; }
