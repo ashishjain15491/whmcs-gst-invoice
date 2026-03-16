@@ -291,7 +291,7 @@ function gst_manager_output($vars)
                     </div>
                 </div>
             </div>
-        </div>;
+        </div>
 
         // GSTIN Validation Script
         <script>
