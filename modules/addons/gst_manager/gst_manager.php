@@ -13,7 +13,7 @@ function gst_manager_config()
         'description' => 'Complete GST Solution. Features: One-Click System Setup, Custom Rules, SAC Management, Export Compliance, and CSV Reports.',
         'author' => 'Relyweb',
         'language' => 'english',
-        'version' => '2.7',
+        'version' => '2.8',
     ];
 }
 
@@ -126,6 +126,18 @@ function gst_manager_output($vars)
     if ($action == 'delete_rule') {
         Capsule::table('mod_gst_rules')->where('id', $_REQUEST['id'])->delete();
         header("Location: " . $modulelink . "&action=rules&success=deleted");
+        exit;
+    }
+    if ($action == 'update_rule') {
+        if (!empty($_POST['keyword'])) {
+            Capsule::table('mod_gst_rules')->where('id', $_REQUEST['id'])->update([
+                'keyword' => strtolower(trim($_POST['keyword'])),
+                'display_name' => trim($_POST['display_name']),
+                'sac_code' => trim($_POST['sac_code']),
+                'purpose_code' => trim($_POST['purpose_code'])
+            ]);
+        }
+        header("Location: " . $modulelink . "&action=rules&success=updated");
         exit;
     }
     
@@ -251,7 +263,8 @@ function gst_manager_output($vars)
                     <form method="post" action="'.$modulelink.'&action=setup_tax_config">
                         <div class="form-group">
                             <label>Your Company GSTIN</label>
-                            <input type="text" name="company_gstin" class="form-control" value="'.(!empty($currentTaxId) ? $currentTaxId : '').'" placeholder="27ABCDE1234F1Z5">
+                            <input type="text" id="company_gstin_input" name="company_gstin" class="form-control" value="'.(!empty($currentTaxId) ? $currentTaxId : '').'" placeholder="27ABCDE1234F1Z5" maxlength="15">
+                            <small id="gstin_status" style="display:block; margin-top:5px; font-weight:bold;"></small>
                         </div>
                         <div class="form-group">
                             <label>Your Registered State (Home State)</label>
@@ -278,31 +291,84 @@ function gst_manager_output($vars)
                     </div>
                 </div>
             </div>
-        </div>';
+        </div>;
+
+        // GSTIN Validation Script
+        <script>
+        $(document).ready(function() {
+            $("#company_gstin_input").on("input", function() {
+                var gstin = $(this).val().toUpperCase();
+                $(this).val(gstin); // Force uppercase for standard display
+                
+                // Official GSTIN Regex Pattern
+                var gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[Z]{1}[0-9A-Z]{1}$/;
+                var statusEl = $("#gstin_status");
+                
+                if (gstin.length === 0) {
+                    statusEl.html("").removeClass("text-success text-danger");
+                } else if (gstin.length < 15) {
+                    statusEl.html("<i class=\'fas fa-info-circle\'></i> GSTIN must be 15 characters.").removeClass("text-success").addClass("text-danger");
+                } else if (gstinRegex.test(gstin)) {
+                    statusEl.html("<i class=\'fas fa-check-circle\'></i> Valid GSTIN Format").removeClass("text-danger").addClass("text-success");
+                } else {
+                    statusEl.html("<i class=\'fas fa-times-circle\'></i> Invalid GSTIN Format. Check structure.").removeClass("text-success").addClass("text-danger");
+                }
+            });
+            
+            // Trigger check on page load if a value already exists
+            if($("#company_gstin_input").val().length > 0) {
+                $("#company_gstin_input").trigger("input");
+            }
+        });
+        </script>';
 
     } elseif ($tab == 'rules') {
         // --- RULES TAB ---
-        echo '<div class="gst-card">
-            <h3><i class="fas fa-list-ul"></i> Custom Item Type Rules</h3>
-            <table class="table table-bordered table-striped table-rules">
-                <thead><tr><th width="25%">Keyword</th><th width="25%">Display Name</th><th width="20%">SAC Code</th><th width="20%">Purpose Code</th><th width="10%"></th></tr></thead>
-                <tbody>';
-        foreach ($rules as $rule) {
-            echo '<tr>
-                <td>Contains: <code>'.htmlspecialchars($rule->keyword).'</code></td>
-                <td>'.htmlspecialchars($rule->display_name).'</td>
-                <td>'.htmlspecialchars($rule->sac_code).'</td>
-                <td>'.htmlspecialchars($rule->purpose_code ?? '').'</td>
-                <td><a href="'.$modulelink.'&action=delete_rule&id='.$rule->id.'" class="btn btn-xs btn-danger" onclick="return confirm(\'Delete?\')"><i class="fas fa-trash"></i></a></td>
-            </tr>';
+        if (isset($_REQUEST['edit_id'])) {
+            // Edit View
+            $editRule = Capsule::table('mod_gst_rules')->where('id', $_REQUEST['edit_id'])->first();
+            if ($editRule) {
+                echo '<div class="gst-card">
+                    <h3><i class="fas fa-edit"></i> Edit Item Rule</h3>
+                    <form method="post" action="'.$modulelink.'&action=update_rule&id='.$editRule->id.'">
+                        <div class="row">
+                            <div class="col-md-3 form-group"><label>Keyword</label><input type="text" name="keyword" class="form-control" value="'.htmlspecialchars($editRule->keyword).'" required disabled></div>
+                            <div class="col-md-3 form-group"><label>Display Name</label><input type="text" name="display_name" class="form-control" value="'.htmlspecialchars($editRule->display_name).'" required disabled></div>
+                            <div class="col-md-3 form-group"><label>SAC Code</label><input type="text" name="sac_code" class="form-control" value="'.htmlspecialchars($editRule->sac_code).'" required></div>
+                            <div class="col-md-3 form-group"><label>Purpose Code</label><input type="text" name="purpose_code" class="form-control" value="'.htmlspecialchars($editRule->purpose_code ?? '').'"></div>
+                        </div>
+                        <button type="submit" class="btn btn-success">Update Rule</button>
+                        <a href="'.$modulelink.'&action=rules" class="btn btn-default">Cancel</a>
+                    </form>
+                </div>';
+            }
+        } else {
+            // Default Table View
+            echo '<div class="gst-card">
+                <h3><i class="fas fa-list-ul"></i> Custom Item Type Rules</h3>
+                <table class="table table-bordered table-striped table-rules">
+                    <thead><tr><th width="25%">Keyword</th><th width="25%">Display Name</th><th width="20%">SAC Code</th><th width="20%">Purpose Code</th><th width="10%"></th></tr></thead>
+                    <tbody>';
+            foreach ($rules as $rule) {
+                echo '<tr>
+                    <td>Contains: <code>'.htmlspecialchars($rule->keyword).'</code></td>
+                    <td>'.htmlspecialchars($rule->display_name).'</td>
+                    <td>'.htmlspecialchars($rule->sac_code).'</td>
+                    <td>'.htmlspecialchars($rule->purpose_code ?? '').'</td>
+                    <td>
+                        <a href="'.$modulelink.'&action=rules&edit_id='.$rule->id.'" class="btn btn-xs btn-primary" title="Edit"><i class="fas fa-edit"></i></a>
+                        <a href="'.$modulelink.'&action=delete_rule&id='.$rule->id.'" class="btn btn-xs btn-danger" title="Delete" onclick="return confirm(\'Delete?\')"><i class="fas fa-trash"></i></a>
+                    </td>
+                </tr>';
+            }
+            echo '</tbody><tfoot><form method="post" action="'.$modulelink.'&action=add_rule"><tr class="info">
+                <td><input type="text" name="keyword" class="form-control input-sm" placeholder="e.g. workplace" required></td>
+                <td><input type="text" name="display_name" class="form-control input-sm" placeholder="e.g. Zoho" required></td>
+                <td><input type="text" name="sac_code" class="form-control input-sm" placeholder="SAC" required></td>
+                <td><input type="text" name="purpose_code" class="form-control input-sm" placeholder="Purpose Code"></td>
+                <td><button type="submit" class="btn btn-success btn-sm btn-block"><i class="fas fa-plus"></i></button></td>
+                </tr></form></tfoot></table></div>';
         }
-        echo '</tbody><tfoot><form method="post" action="'.$modulelink.'&action=add_rule"><tr class="info">
-            <td><input type="text" name="keyword" class="form-control input-sm" placeholder="e.g. workplace" required></td>
-            <td><input type="text" name="display_name" class="form-control input-sm" placeholder="e.g. Zoho" required></td>
-            <td><input type="text" name="sac_code" class="form-control input-sm" placeholder="SAC" required></td>
-            <td><input type="text" name="purpose_code" class="form-control input-sm" placeholder="Purpose Code"></td>
-            <td><button type="submit" class="btn btn-success btn-sm btn-block"><i class="fas fa-plus"></i></button></td>
-            </tr></form></tfoot></table></div>';
 
     } elseif ($tab == 'settings') {
         // --- SETTINGS TAB ---
