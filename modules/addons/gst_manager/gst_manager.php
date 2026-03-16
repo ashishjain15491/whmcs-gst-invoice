@@ -227,7 +227,7 @@ function gst_manager_output($vars)
         $taxEnabled = Capsule::table('tblconfiguration')->where('setting', 'TaxEnabled')->value('value') == 'on';
 
         // Fetch current Company Tax ID if set
-        $currentTaxId = Capsule::table('tblconfiguration')->where('setting', 'TaxId')->value('value');
+        $currentTaxId = Capsule::table('tblconfiguration')->where('setting', 'TaxCode')->value('value');
         
         $indianStates = ['Andaman and Nicobar Islands','Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chandigarh','Chhattisgarh','Dadra and Nagar Haveli','Daman and Diu','Delhi','Goa','Gujarat','Haryana','Himachal Pradesh','Jammu and Kashmir','Jharkhand','Karnataka','Kerala','Ladakh','Lakshadweep','Madhya Pradesh','Maharashtra','Manipur','Meghalaya','Mizoram','Nagaland','Odisha','Puducherry','Punjab','Rajasthan','Sikkim','Tamil Nadu','Telangana','Tripura','Uttar Pradesh','Uttarakhand','West Bengal'];
         
