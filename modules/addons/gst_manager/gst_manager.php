@@ -291,10 +291,10 @@ function gst_manager_output($vars)
                     </div>
                 </div>
             </div>
-        </div>
+        </div>';
 
         // GSTIN Validation Script
-        <script>
+        echo '<script>
         $(document).ready(function() {
             $("#company_gstin_input").on("input", function() {
                 var gstin = $(this).val().toUpperCase();
